@@ -53,7 +53,7 @@ def get_player_game_hit_log(player_id: str) -> List[Dict]:
 
 
 def get_weighted_player_percentage_hit_games(game_log: List[Dict[str, int]]) -> float:
-    decay_factor = 0.9
+    decay_factor = 0.99
 
     def reducer(acc, game):
         _weighted_sum, _normalizing_sum, current_weight = acc
