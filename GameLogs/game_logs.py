@@ -1,5 +1,7 @@
+from functools import reduce
+from typing import List, Dict, Any
+
 import requests
-from typing import List, Dict
 
 API_BASE = "https://statsapi.mlb.com/api/v1"
 SEASON = '2023'
@@ -43,16 +45,36 @@ def get_player_game_hit_log(player_id: str) -> List[Dict]:
         'language': 'en'
     }
     return [
-        {k: game['stat'][k] for k in ['hits']}
+        {k: game['stat'][k] for k in ['hits']} | {'date': game['date']}
         for game in fetch_json(url, params)['stats'][0]['splits']
     ]
 
 
-def get_player_percentage_hit_games(player_id: str) -> float:
+def get_weighted_player_percentage_hit_games(game_log):
+    decay_factor = 0.9
+
+    def reducer(acc, game):
+        _weighted_sum, _normalizing_sum, _current_weight = acc
+        return (
+            _weighted_sum + (game['hits'] > 0) * _current_weight,
+            _normalizing_sum + _current_weight,
+            _current_weight * decay_factor
+        )
+
+    weighted_sum, normalizing_sum, _ = reduce(reducer, reversed(game_log), (0, 0, 1))
+
+    weighted_percentage = (weighted_sum / normalizing_sum)
+    return weighted_percentage
+
+
+def get_player_percentage_hit_games(player_id: str) -> dict[str, int | Any]:
     game_hit_log = get_player_game_hit_log(player_id)
     games_played = len(game_hit_log)
     games_with_a_hit = sum(game['hits'] > 0 for game in game_hit_log)
-    return games_with_a_hit / games_played
+    return {
+        'percent_games_with_hit': games_with_a_hit / games_played,
+        'weighted_percent_games_with_hit': get_weighted_player_percentage_hit_games(game_hit_log)
+    }
 
 
 if __name__ == "__main__":
@@ -60,13 +82,20 @@ if __name__ == "__main__":
     players_game_hit_percent = [
         {
             'player': player['playerName'],
-            'percent_games_with_hit': get_player_percentage_hit_games(player['playerId'])
+            **get_player_percentage_hit_games(player['playerId'])
         }
         for player in players
     ]
 
-    print(f"{'Player':<20} | {'% Games with Hit':>15}")
-    print('-' * 28)
-    for stat in sorted(players_game_hit_percent, key=lambda x: x['percent_games_with_hit'], reverse=True):
-        percent = round(stat['percent_games_with_hit'] * 100, 2)
-        print(f"{stat['player']:<20} | {percent:>15.2f}")
+    # Sort the list of dictionaries by 'weighted_percent_games_with_hit' in descending order
+    sorted_player_data = sorted(players_game_hit_percent, key=lambda x: x['weighted_percent_games_with_hit'],
+                                reverse=True)
+
+    # Print the GitHub Markdown table header
+    print("| Player Name | Percent Games with Hit | Weighted Percent Games with Hit |")
+    print("| ----------- | ---------------------- | ------------------------------- |")
+
+    # Print the sorted data
+    for player in sorted_player_data:
+        print(
+            f"| {player['player']} | {player['percent_games_with_hit']:.2f} | {player['weighted_percent_games_with_hit']:.2f} |")
