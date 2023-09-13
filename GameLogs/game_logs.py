@@ -1,17 +1,23 @@
 from functools import reduce
 from typing import List, Dict
 
+import pyperclip
 import requests
 
 API_BASE = "https://statsapi.mlb.com/api/v1"
 SEASON = '2023'
+TEAM_ID = {
+    'Orioles': 110,
+    'Twins': 142,
+    'Rays': 139
+}
 
 
 def fetch_json(url: str, params: Dict) -> Dict:
     return requests.get(url, params=params).json()
 
 
-def get_player_ids_params() -> Dict:
+def get_player_ids_params(team_id) -> Dict:
     return {
         'stitch_env': 'prod',
         'season': SEASON,
@@ -23,7 +29,7 @@ def get_player_ids_params() -> Dict:
         'offset': '0',
         'sortStat': 'gamesPlayed',
         'order': 'desc',
-        'teamId': '110'
+        'teamId': team_id
     }
 
 
@@ -40,10 +46,11 @@ def get_player_game_hit_log_params(player_id: str) -> Dict:
     }
 
 
-def get_player_ids() -> List[Dict]:
+def get_player_ids(team_name) -> List[Dict]:
     url = 'https://bdfed.stitch.mlbinfra.com/bdfed/stats/player'
+    team_id = TEAM_ID[team_name]
     return [{k: player[k] for k in ['playerId', 'playerName']}
-            for player in fetch_json(url, get_player_ids_params())['stats']]
+            for player in fetch_json(url, get_player_ids_params(team_id))['stats']]
 
 
 def get_player_game_hit_log(player_id: str) -> List[Dict]:
@@ -78,8 +85,35 @@ def get_player_percentage_hit_games(player_id: str) -> Dict[str, int]:
     }
 
 
+def print_markdown_table(player_data):
+    print("| Player Name | Percent Games with Hit | Weighted Percent Games with Hit |")
+    print("| ----------- | ---------------------- | ------------------------------- |")
+
+    for player in player_data:
+        print(
+            f"| {player['player']} | {player['percent_games_with_hit']:.2f} | {player['weighted_percent_games_with_hit']:.2f} |")
+
+
+def copy_table_to_clipboard(player_data):
+    # Extract headers
+    headers = player_data[0].keys()
+    header_str = '\t'.join(headers)
+
+    # Extract values for each dictionary and convert to a tab-delimited string
+    rows = ['\t'.join(map(str, d.values())) for d in player_data]
+
+    # Combine headers and rows
+    table_str = '\n'.join([header_str] + rows)
+
+    # Copy to clipboard
+    pyperclip.copy(table_str)
+
+    print("[INFO] Copied table to clipboard")
+
+
 def main():
-    players = get_player_ids()
+    team_name = 'Rays'
+    players = get_player_ids(team_name)
     players_game_hit_percent = [
         {'player': player['playerName'], **get_player_percentage_hit_games(player['playerId'])}
         for player in players
@@ -88,12 +122,8 @@ def main():
     sorted_player_data = sorted(players_game_hit_percent, key=lambda x: x['weighted_percent_games_with_hit'],
                                 reverse=True)
 
-    print("| Player Name | Percent Games with Hit | Weighted Percent Games with Hit |")
-    print("| ----------- | ---------------------- | ------------------------------- |")
-
-    for player in sorted_player_data:
-        print(
-            f"| {player['player']} | {player['percent_games_with_hit']:.2f} | {player['weighted_percent_games_with_hit']:.2f} |")
+    # print_markdown_table(sorted_player_data)
+    copy_table_to_clipboard(sorted_player_data)
 
 
 if __name__ == "__main__":
